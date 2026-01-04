@@ -206,13 +206,14 @@ class TDMPC2(torch.nn.Module):
 		self._prev_mean.copy_(mean)
 		return a.clamp(-1, 1)
 
-	def update_pi(self, zs, task):
+	def update_pi(self, zs, task, target_actions=None):
 		"""
 		Update policy using a sequence of latent states.
 
 		Args:
 			zs (torch.Tensor): Sequence of latent states.
 			task (torch.Tensor): Task index (only used for multi-task experiments).
+			target_actions (torch.Tensor): Target actions from MPPI for TD-M(PC)² policy constraint.
 
 		Returns:
 			float: Loss of the policy update.
@@ -225,6 +226,16 @@ class TDMPC2(torch.nn.Module):
 		# Loss is a weighted sum of Q-values
 		rho = torch.pow(self.cfg.rho, torch.arange(len(qs), device=self.device))
 		pi_loss = (-(self.cfg.entropy_coef * info["scaled_entropy"] + qs).mean(dim=(1,2)) * rho).mean()
+
+		# TD-M(PC)² policy constraint: BC loss to match MPPI actions (arxiv:2502.03550)
+		policy_constraint_loss = torch.tensor(0., device=self.device)
+		if target_actions is not None and self.cfg.policy_constraint_coef > 0:
+			# Use policy mean to match MPPI-selected actions
+			policy_mean = info["mean"]  # [horizon+1, batch, action_dim]
+			# target_actions shape: [horizon, batch, action_dim], align with zs[:-1]
+			policy_constraint_loss = F.mse_loss(policy_mean[:-1], target_actions)
+			pi_loss = pi_loss + self.cfg.policy_constraint_coef * policy_constraint_loss
+
 		pi_loss.backward()
 		pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.model._pi.parameters(), self.cfg.grad_clip_norm)
 		self.pi_optim.step()
@@ -236,6 +247,7 @@ class TDMPC2(torch.nn.Module):
 			"pi_entropy": info["entropy"],
 			"pi_scaled_entropy": info["scaled_entropy"],
 			"pi_scale": self.scale.value,
+			"policy_constraint_loss": policy_constraint_loss,
 		})
 		return info
 
@@ -310,8 +322,8 @@ class TDMPC2(torch.nn.Module):
 		self.optim.step()
 		self.optim.zero_grad(set_to_none=True)
 
-		# Update policy
-		pi_info = self.update_pi(zs.detach(), task)
+		# Update policy with TD-M(PC)² constraint (pass buffer actions for BC loss)
+		pi_info = self.update_pi(zs.detach(), task, target_actions=action)
 
 		# Update target Q-functions
 		self.model.soft_update_target_Q()

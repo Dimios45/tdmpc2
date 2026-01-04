@@ -45,6 +45,7 @@ temperature: 0.5
 log_std_min: -10
 log_std_max: 2
 entropy_coef: 1e-4
+policy_constraint_coef: 0.1  # TD-M(PC)² BC loss coefficient (arxiv:2502.03550)
 
 # critic
 num_bins: 101
