@@ -30,6 +30,12 @@ buffer_size: 1_000_000
 exp_name: default
 data_dir: ???
 
+# demonstration-augmented learning (DEMO3)
+demo_path: null
+demo_sampling_ratio: 0.5
+bc_pretraining_steps: 1000
+policy_pretraining: true
+
 # planning
 mpc: true
 iterations: 6
@@ -64,8 +70,8 @@ dropout: 0.01
 simnorm_dim: 8
 
 # logging
-wandb_project: ???
-wandb_entity: ???
+wandb_project: tdmpc2
+wandb_entity: voidz7447-ksagar-site
 wandb_silent: false
 enable_wandb: true
 save_csv: true

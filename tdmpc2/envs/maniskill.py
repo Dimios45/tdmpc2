@@ -14,6 +14,10 @@ MANISKILL_TASKS = {
 		env='PickCube-v0',
 		control_mode='pd_ee_delta_pos',
 	),
+	'pick-cube-demo': dict(
+		env='PickCube-v0',
+		control_mode='pd_joint_pos',  # Matches ManiSkill2 demo format (8-dim actions)
+	),
 	'stack-cube': dict(
 		env='StackCube-v0',
 		control_mode='pd_ee_delta_pos',
@@ -42,14 +46,16 @@ class ManiSkillWrapper(gym.Wrapper):
 		)
 
 	def reset(self):
-		return self.env.reset()
+		obs, info = self.env.reset()
+		return obs
 	
 	def step(self, action):
 		reward = 0
 		for _ in range(2):
-			obs, r, done, info = self.env.step(action)
+			obs, r, terminated, truncated, info = self.env.step(action)
 			reward += r
-			info['terminated'] = done
+			done = terminated or truncated
+			info['terminated'] = terminated
 			if done:
 				break
 		return obs, reward, done, info
@@ -58,8 +64,8 @@ class ManiSkillWrapper(gym.Wrapper):
 	def unwrapped(self):
 		return self.env.unwrapped
 
-	def render(self, args, **kwargs):
-		return self.env.render(mode='cameras')
+	def render(self, *args, **kwargs):
+		return self.env.render()
 
 
 def make_env(cfg):
@@ -74,9 +80,9 @@ def make_env(cfg):
 		task_cfg['env'],
 		obs_mode='state',
 		control_mode=task_cfg['control_mode'],
+		render_mode='cameras',
 		render_camera_cfgs=dict(width=384, height=384),
 	)
 	env = ManiSkillWrapper(env, cfg)
 	env = Timeout(env, max_episode_steps=100)
-	env.max_episode_steps = env._max_episode_steps
 	return env

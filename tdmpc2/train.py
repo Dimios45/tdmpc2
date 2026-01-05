@@ -12,11 +12,12 @@ from termcolor import colored
 
 from common.parser import parse_cfg
 from common.seed import set_seed
-from common.buffer import Buffer
+from common.buffer import Buffer, DemoBuffer
 from envs import make_env
 from tdmpc2 import TDMPC2
 from trainer.offline_trainer import OfflineTrainer
 from trainer.online_trainer import OnlineTrainer
+from trainer.demo_trainer import DemoTrainer
 from common.logger import Logger
 
 torch.backends.cudnn.benchmark = True
@@ -49,14 +50,43 @@ def train(cfg: dict):
 	set_seed(cfg.seed)
 	print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
 
-	trainer_cls = OfflineTrainer if cfg.multitask else OnlineTrainer
-	trainer = trainer_cls(
+	# Check if demo path is provided
+	demo_path = cfg.get('demo_path', None)
+	use_demos = demo_path is not None and demo_path != 'null'
+
+	# Select trainer class
+	if cfg.multitask:
+		trainer_cls = OfflineTrainer
+	elif use_demos:
+		trainer_cls = DemoTrainer
+	else:
+		trainer_cls = OnlineTrainer
+
+	# Create environment first (needed for obs_shape in demo loading)
+	env = make_env(cfg)
+
+	# Load demonstration buffer if demo_path is provided (after env creation)
+	demo_buffer = None
+	if use_demos:
+		print(colored('Loading demonstrations...', 'cyan', attrs=['bold']))
+		demo_buffer = DemoBuffer(cfg, demo_path)
+
+		# Disable BC pretraining if policy_pretraining is False
+		if not cfg.get('policy_pretraining', True):
+			cfg = cfg.__class__(**{**{k: getattr(cfg, k) for k in dir(cfg) if not k.startswith('_')}, 'bc_pretraining_steps': 0})
+
+	# Create trainer
+	trainer_kwargs = dict(
 		cfg=cfg,
-		env=make_env(cfg),
+		env=env,
 		agent=TDMPC2(cfg),
 		buffer=Buffer(cfg),
 		logger=Logger(cfg),
 	)
+	if demo_buffer is not None:
+		trainer_kwargs['demo_buffer'] = demo_buffer
+
+	trainer = trainer_cls(**trainer_kwargs)
 	trainer.train()
 	print('\nTraining completed successfully')
 
